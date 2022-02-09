@@ -105,8 +105,8 @@ c10::optional<size_t> bufSize(BufPtr buf) {
 // as "up for grabs" for future reuse.
 std::vector<std::pair<BufPtr, BufPtr>> AllocBufsWithMemReuse(
     const std::unordered_set<BufPtr>& bufs,
-    const std::unordered_map<BufPtr, std::tuple<int32_t, int32_t>>&
-        buf_ranges) {
+    const std::unordered_map<BufPtr, std::tuple<int32_t, int32_t>>& buf_ranges,
+    const std::unordered_set<BufPtr>& bufs_external_allocs) {
   // Sort buffers by the time they appear.
   std::vector<BufPtr> bufs_sorted(bufs.begin(), bufs.end());
   auto sorting_function_by_start_time = [&buf_ranges](
@@ -161,16 +161,18 @@ std::vector<std::pair<BufPtr, BufPtr>> AllocBufsWithMemReuse(
     }
 
     bool allocated = false;
-    // Check whether there are free memories that this buf can reuse.
-    for (auto it = mem_up_for_grabs.begin(); it != mem_up_for_grabs.end();
-         it++) {
-      auto m = *it;
-      if (bufSize(m) >= bufSize(buf)) {
-        buf_mem_map[buf] = m;
-        buf_allocs.emplace_back(std::make_pair(buf, m));
-        allocated = true;
-        mem_up_for_grabs.erase(it);
-        break;
+    if (bufs_external_allocs.find(buf) == bufs_external_allocs.end()) {
+      // Check whether there are free memories that this buf can reuse.
+      for (auto it = mem_up_for_grabs.begin(); it != mem_up_for_grabs.end();
+           it++) {
+        auto m = *it;
+        if (bufSize(m) >= bufSize(buf)) {
+          buf_mem_map[buf] = m;
+          buf_allocs.emplace_back(std::make_pair(buf, m));
+          allocated = true;
+          mem_up_for_grabs.erase(it);
+          break;
+        }
       }
     }
 
@@ -187,23 +189,30 @@ std::vector<std::pair<BufPtr, BufPtr>> AllocBufsWithMemReuse(
 
 StmtPtr insertAllocFree(
     std::vector<std::pair<BufPtr, BufPtr>>& buf_allocs,
+    const std::unordered_set<BufPtr>& bufs_external_allocs,
     StmtPtr stmt) {
   BlockPtr b = to<Block>(stmt);
   if (!b) {
     b = alloc<Block>(std::vector<StmtPtr>({stmt}));
   }
 
+  std::vector<BufPtr> bufs_ext_to_free;
   // Insert allocations and frees for temporary buffers at global scope.
   for (auto rit = buf_allocs.rbegin(); rit != buf_allocs.rend(); ++rit) {
     if (rit->first == rit->second) {
       BufPtr buf = rit->first;
-      b->prepend_stmt(alloc<Allocate>(buf));
-      b->append_stmt(alloc<Free>(buf));
+      if (bufs_external_allocs.find(buf) == bufs_external_allocs.end()) {
+        b->prepend_stmt(alloc<Allocate>(buf));
+        b->append_stmt(alloc<Free>(buf));
+      } else {
+        bufs_ext_to_free.push_back(buf);
+      }
     } else {
       b->prepend_stmt(alloc<PlacementAllocate>(rit->first, rit->second));
     }
   }
 
+  b->append_stmt(alloc<FreeExt>(bufs_ext_to_free));
   return b;
 }
 
@@ -236,14 +245,17 @@ void CodeGen::allocIntermediateBufs() {
     }
   }
 
+  const auto bufs_external_allocs = ExternalAllocBufFinder::find(stmt_);
+
   // For each intermediate buffer, we reuse the memory of an old buffer whose
   // liveness range does not overlap with the current buffer, or allocate memory
   // if reusing buffer is impossible.
-  auto buf_allocs = AllocBufsWithMemReuse(interm_bufs, interm_buf_ranges);
+  auto buf_allocs = AllocBufsWithMemReuse(
+      interm_bufs, interm_buf_ranges, bufs_external_allocs);
 
   // Insert memory allocation/mapping nodes.
   if (buf_allocs.size() > 0) {
-    auto stmt_new = insertAllocFree(buf_allocs, stmt_);
+    auto stmt_new = insertAllocFree(buf_allocs, bufs_external_allocs, stmt_);
     set_stmt(stmt_new);
   }
 

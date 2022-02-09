@@ -413,6 +413,16 @@ Tensor computeQuantizedConv2d(
       Dtype(out_qdtype),
       out_qscale,
       out_qzero);
+  StmtPtr s = ExternalCall2::make(
+      "nnc_aten_quantized_conv2d_out",
+      {ResultBuf},
+      {qx, prepacked},
+      {immQScale(qx),
+       immQZero(qx),
+       (int64_t)immQDType(qx),
+       out_qscale,
+       out_qzero});
+  /*
   StmtPtr s = ExternalCall::make(
       ResultBuf,
       "nnc_aten_quantized_conv2d",
@@ -422,6 +432,7 @@ Tensor computeQuantizedConv2d(
        (int64_t)immQDType(qx),
        out_qscale,
        out_qzero});
+  */
   return Tensor(ResultBuf.node(), s);
 }
 
@@ -444,6 +455,16 @@ Tensor computeQuantizedConv2dRelu(
       Dtype(out_qdtype),
       out_qscale,
       out_qzero);
+  StmtPtr s = ExternalCall2::make(
+      "nnc_aten_quantized_conv2d_relu_out",
+      {ResultBuf},
+      {qx, prepacked},
+      {immQScale(qx),
+       immQZero(qx),
+       (int64_t)immQDType(qx),
+       out_qscale,
+       out_qzero});
+  /*
   StmtPtr s = ExternalCall::make(
       ResultBuf,
       "nnc_aten_quantized_conv2d_relu",
@@ -453,6 +474,7 @@ Tensor computeQuantizedConv2dRelu(
        (int64_t)immQDType(qx),
        out_qscale,
        out_qzero});
+  */
   return Tensor(ResultBuf.node(), s);
 }
 
@@ -576,6 +598,19 @@ Tensor computeQuantizedMul(
   const auto out_qdtype = immQDType(qa);
   auto ResultBuf = makeQBufHandleNCHW(
       "quantized_mul", outputShape, Dtype(out_qdtype), out_qscale, out_qzero);
+  StmtPtr s = ExternalCall2::make(
+      "nnc_aten_quantized_mul_out",
+      {ResultBuf},
+      {qa, qb},
+      {immQScale(qa),
+       immQZero(qa),
+       (int64_t)immQDType(qa),
+       immQScale(qb),
+       immQZero(qb),
+       (int64_t)immQDType(qb),
+       out_qscale,
+       out_qzero});
+  /*
   StmtPtr s = ExternalCall::make(
       ResultBuf,
       "nnc_aten_quantized_mul",
@@ -588,6 +623,7 @@ Tensor computeQuantizedMul(
        (int64_t)immQDType(qb),
        out_qscale,
        out_qzero});
+  */
   return Tensor(ResultBuf.node(), s);
 }
 
